@@ -17,7 +17,10 @@
 package org.jongo;
 
 import org.bson.types.ObjectId;
-import org.jongo.model.*;
+import org.jongo.model.Animal;
+import org.jongo.model.Coordinate;
+import org.jongo.model.Fox;
+import org.jongo.model.People;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -135,4 +138,5 @@ public class MongoCollectionTest {
     public void canGetCollectionName() throws Exception {
         assertThat(mongoCollection.getName()).isEqualTo("users");
     }
+
 }
