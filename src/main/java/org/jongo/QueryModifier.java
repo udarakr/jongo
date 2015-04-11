@@ -14,27 +14,10 @@
  * limitations under the License.
  */
 
-package org.jongo.bson;
+package org.jongo;
 
-import com.mongodb.DBObject;
-import com.mongodb.LazyDBObject;
-import org.bson.LazyBSONCallback;
+import com.mongodb.DBCursor;
 
-class RelaxedLazyDBObject extends LazyDBObject implements BsonDocument {
-
-    public RelaxedLazyDBObject(byte[] data, LazyBSONCallback cbk) {
-        super(data, cbk);
-    }
-
-    public byte[] toByteArray() {
-        return _input.array();
-    }
-
-    public DBObject toDBObject() {
-        return this;
-    }
-
-    public int getSize() {
-        return getBSONSize();
-    }
+public interface QueryModifier {
+    void modify(DBCursor cursor);
 }

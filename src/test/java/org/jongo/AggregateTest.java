@@ -16,16 +16,22 @@
 
 package org.jongo;
 
+import com.mongodb.AggregationOptions;
+import com.mongodb.MongoCommandException;
 import org.jongo.util.JongoTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static junit.framework.Assert.fail;
-import static org.fest.assertions.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.*;
 
 public class AggregateTest extends JongoTestCase {
 
@@ -35,7 +41,7 @@ public class AggregateTest extends JongoTestCase {
     @Before
     public void setUp() throws Exception {
 
-        assumeThatMongoVersionIsGreaterThan("2.1.1");
+        assumeThatMongoVersionIsGreaterThan("2.6");
 
         collection = createEmptyCollection("articles");
         collection.save(new Article("Zombie Panic", "Kirsty Mckay", "horror", "virus"));
@@ -49,52 +55,84 @@ public class AggregateTest extends JongoTestCase {
     }
 
     @Test
-    public void shouldAggregateAllDocuments() throws Exception {
+    public void canAggregate() throws Exception {
 
-        List<Article> articles = collection.aggregate("{$match:{}}").as(Article.class);
+        Iterable<Article> articles = collection.aggregate("{$match:{}}").as(Article.class);
 
-        assertThat(articles.isEmpty()).isFalse();
+        assertThat(articles.iterator().hasNext()).isTrue();
         for (Article article : articles) {
             assertThat(article.title).isIn("Zombie Panic", "Apocalypse Zombie", "World War Z");
         }
     }
 
     @Test
-    public void canAggregateWithMatch() throws Exception {
+    public void canAggregateWithDefaultOptions() throws Exception {
+        AggregationOptions options = AggregationOptions.builder().build();
+        Iterable<Article> articles = collection.aggregate("{$match:{}}").options(options).as(Article.class);
 
-        List<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").as(Article.class);
+        assertThat(articles.iterator().hasNext()).isTrue();
+        for (Article article : articles) {
+            assertThat(article.title).isIn("Zombie Panic", "Apocalypse Zombie", "World War Z");
+        }
+    }
 
-        assertThat(articles).hasSize(2);
+    @Test
+    public void canAggregateWithOptions() throws Exception {
+
+        AggregationOptions options = spy(AggregationOptions.builder().outputMode(AggregationOptions.OutputMode.CURSOR).allowDiskUse(true).build());
+
+        Iterable<Article> articles = collection.aggregate("{$match:{}}").options(options).as(Article.class);
+
+        assertThat(articles.iterator().hasNext()).isTrue();
+        for (Article article : articles) {
+            assertThat(article.title).isIn("Zombie Panic", "Apocalypse Zombie", "World War Z");
+        }
+        verify(options, atLeastOnce()).getAllowDiskUse();
+        verify(options, atLeastOnce()).getMaxTime(any(TimeUnit.class));
+        verify(options, atLeastOnce()).getBatchSize();
+        verify(options, atLeastOnce()).getOutputMode();
+    }
+
+    @Test
+    public void canAggregateWithMultipleDocuments() throws Exception {
+
+        Iterable<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").as(Article.class);
+
+        assertThat(articles.iterator().hasNext()).isTrue();
+        int size = 0;
         for (Article article : articles) {
             assertThat(article.tags).contains("virus");
+            size++;
         }
+        assertThat(size).isEqualTo(2);
     }
 
     @Test
     public void canAggregateParameters() throws Exception {
 
-        List<Article> articles = collection.aggregate("{$match:{tags:#}}", "pandemic").as(Article.class);
+        Iterator<Article> articles = collection.aggregate("{$match:{tags:#}}", "pandemic").as(Article.class);
 
-        assertThat(articles).hasSize(1);
-        assertThat(articles.get(0).title).isEqualTo("World War Z");
+        assertThat(articles.next().title).isEqualTo("World War Z");
+        assertThat(articles.hasNext()).isFalse();
     }
 
     @Test
     public void canAggregateWithManyMatch() throws Exception {
 
-        List<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").and("{$match:{tags:'pandemic'}}").as(Article.class);
+        Iterator<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").and("{$match:{tags:'pandemic'}}").as(Article.class);
 
-        assertThat(articles).hasSize(1);
-        Article firstArticle = articles.get(0);
+        Article firstArticle = articles.next();
         assertThat(firstArticle.title).isEqualTo("World War Z");
+        assertThat(articles.hasNext()).isFalse();
     }
 
     @Test
     public void canAggregateWithManyOperators() throws Exception {
 
-        List<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").and("{$limit:1}").as(Article.class);
+        Iterator<Article> articles = collection.aggregate("{$match:{tags:'virus'}}").and("{$limit:1}").as(Article.class);
 
-        assertThat(articles.size()).isEqualTo(1);
+        articles.next();
+        assertThat(articles.hasNext()).isFalse();
     }
 
     @Test
@@ -104,7 +142,7 @@ public class AggregateTest extends JongoTestCase {
             collection.aggregate("{$invalid:{}}").as(Article.class);
             fail();
         } catch (Exception e) {
-            assertThat(e.getClass().toString()).contains("CommandFailure");
+            assertThat(MongoCommandException.class).isAssignableFrom(e.getClass());
         }
     }
 
@@ -120,6 +158,7 @@ public class AggregateTest extends JongoTestCase {
         }
 
         private Article() {
+            //used by jackson
         }
     }
 }

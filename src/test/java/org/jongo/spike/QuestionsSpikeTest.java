@@ -16,25 +16,33 @@
 
 package org.jongo.spike;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.DBObject;
 import com.mongodb.QueryBuilder;
+import org.jongo.Jongo;
+import org.jongo.Mapper;
 import org.jongo.MongoCollection;
 import org.jongo.ResultHandler;
+import org.jongo.bson.Bson;
 import org.jongo.bson.BsonDocument;
 import org.jongo.marshall.Unmarshaller;
 import org.jongo.marshall.jackson.JacksonEngine;
+import org.jongo.marshall.jackson.JacksonMapper;
+import org.jongo.marshall.jackson.configuration.MapperModifier;
 import org.jongo.marshall.jackson.configuration.Mapping;
 import org.jongo.model.Friend;
-import org.jongo.util.JSONResultHandler;
 import org.jongo.util.JongoTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
-import static org.fest.assertions.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class QuestionsSpikeTest extends JongoTestCase {
 
@@ -88,9 +96,10 @@ public class QuestionsSpikeTest extends JongoTestCase {
         collection.insert("{version : 1, days:[{name:'monday'},{name:'sunday'}]}");
         collection.insert("{version : 2, days:[{name:'wednesday'}]}");
 
-        String monday = collection.findOne("{version:1}").projection("{days:{$elemMatch:{name: 'monday'}}}").map(new JSONResultHandler());
+        Map result = collection.findOne("{version:1}").projection("{days:{$elemMatch:{name: 'monday'}}}").as(Map.class);
 
-        assertThat(monday).contains("\"days\" : [ { \"name\" : \"monday\"}]");
+        List days = (List) result.get("days");
+        assertThat(((Map) days.get(0)).get("name")).isEqualTo("monday");
     }
 
     @Test
@@ -106,7 +115,8 @@ public class QuestionsSpikeTest extends JongoTestCase {
 
         Friend friend = collection.findOne("{friends.name:'Peter'}").projection("{friends.$:1}").map(new ResultHandler<Friend>() {
             public Friend map(DBObject dbo) {
-                Party result = unmarshaller.unmarshall((BsonDocument) dbo, Party.class);
+                BsonDocument document = Bson.createDocument(dbo);
+                Party result = unmarshaller.unmarshall(document, Party.class);
                 return result.friends.get(0);
             }
         });
@@ -119,12 +129,57 @@ public class QuestionsSpikeTest extends JongoTestCase {
     public void canUpdateIntoAnArray() throws Exception {
 
         collection.insert("{friends:[{name:'Robert'},{name:'Peter'}]}");
-
+    
         collection.update("{ 'friends.name' : 'Peter' }").with("{ $set : { 'friends.$' : #} }", new Friend("John"));
 
         Party party = collection.findOne().as(Party.class);
 
-        assertThat(party.friends).onProperty("name").containsExactly("Robert", "John");
+        assertThat(party.friends).extracting("name").containsExactly("Robert", "John");
+    }
+
+    @Test
+    //https://github.com/bguerout/jongo/issues/187
+    public void canUseElemMatchWithDateParams() throws Exception {
+
+        Date now = new Date();
+        collection.insert("{flag:'ko', values: [{name: 'Client2', type: 'void',value: ''}]}");
+        collection.insert("{flag:'ok', values: [{name: 'Client', type: 'void',value: ''},{name: 'Date',type: 'date',value: #}]}", now);
+
+        Map map = collection.findOne("{values: {$elemMatch: {value : #}}}", now).as(Map.class);
+
+        assertThat(map).isNotNull();
+        assertThat(map.get("flag")).isEqualTo("ok");
+    }
+
+    @Test
+    //https://github.com/bguerout/jongo/issues/226
+    public void canSetAFieldToNullDuringAnUpdate() throws Exception {
+
+        Mapper mapper = new JacksonMapper.Builder().addModifier(new MapperModifier() {
+            public void modify(ObjectMapper mapper) {
+                mapper.setSerializationInclusion(JsonInclude.Include.ALWAYS);
+            }
+        }).build();
+        Jongo jongo = new Jongo(getDatabase(), mapper);
+        MongoCollection friends = jongo.getCollection("friends");
+        Friend friend = new Friend("Peter", "31 rue des Lilas");
+        friends.save(friend);
+
+        friends.update(friend.getId()).with(new Friend("John"));
+
+        Friend updated = friends.findOne().as(Friend.class);
+        assertThat(updated.getName()).isEqualTo("John");
+        assertThat(updated.getAddress()).isNull();
+    }
+
+    @Test
+    public void canBindAParameterWithSingleQuote() throws Exception {
+
+        collection.insert("{email:\"bob.o'shea@gmail.com\"}");
+
+        long nb = collection.count("{email:#}", "bob.o'shea@gmail.com");
+
+        assertThat(nb).isEqualTo(1);
     }
 
     private static class Party {

@@ -14,25 +14,15 @@
  * limitations under the License.
  */
 
-package org.jongo;
+package org.jongo.marshall.jackson.oid;
 
-import com.mongodb.DBCursor;
-import org.junit.Test;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.NoSuchElementException;
+import java.lang.annotation.Retention;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
-public class MongoIteratorTest {
-
-    @Test(expected = NoSuchElementException.class)
-    public void shouldFailWhenNoMoreElements() throws Exception {
-        DBCursor cursor = mock(DBCursor.class);
-        when(cursor.hasNext()).thenReturn(false);
-        MongoIterator<String> iterator = new MongoIterator<String>(cursor, mock(ResultHandler.class));
-
-        iterator.next();
-    }
-
+@Retention(RUNTIME)
+@JsonProperty("_id")
+public @interface MongoId {
 }

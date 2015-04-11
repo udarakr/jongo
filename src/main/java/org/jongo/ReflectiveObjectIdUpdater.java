@@ -41,7 +41,13 @@ public class ReflectiveObjectIdUpdater implements ObjectIdUpdater {
         if (idField != null) {
             try {
                 idField.setAccessible(true);
-                return idField.get(pojo);
+                Object id = idField.get(pojo);
+
+                if (id instanceof String && idFieldSelector.isObjectId(idField)) {
+                    return new ObjectId(id.toString());
+                } else {
+                    return id;
+                }
 
             } catch (IllegalAccessException e) {
                 throw new RuntimeException("Unable to obtain objectid from field" + idField.getName() + ", class: " + idField.getClass(), e);
@@ -53,7 +59,7 @@ public class ReflectiveObjectIdUpdater implements ObjectIdUpdater {
     public void setObjectId(Object newPojo, ObjectId id) {
         Field idField = selectIdField(newPojo.getClass());
         if (idField == null) {
-            return;     //TODO check if test exists
+            return;
         } else if (!mustGenerateObjectId(newPojo)) {
             throw new IllegalArgumentException("Unable to set objectid on class: " + newPojo.getClass());
         }
@@ -65,7 +71,8 @@ public class ReflectiveObjectIdUpdater implements ObjectIdUpdater {
             if (field.getType().equals(ObjectId.class)) {
                 field.setAccessible(true);
                 field.set(target, id);
-            } else if (field.getType().equals(String.class)) {
+            } else if (field.getType().equals(String.class) && idFieldSelector.isObjectId(field)) {
+                field.setAccessible(true);
                 field.set(target, id.toString());
             }
         } catch (IllegalAccessException e) {
@@ -78,28 +85,34 @@ public class ReflectiveObjectIdUpdater implements ObjectIdUpdater {
             return fieldCache.get(clazz);
         }
 
-        while (!Object.class.equals(clazz)) {
-            for (Field f : clazz.getDeclaredFields()) {
+        Class<?> c = clazz;
+        while (!Object.class.equals(c)) {
+            for (Field f : c.getDeclaredFields()) {
                 if (idFieldSelector.isId(f)) {
                     fieldCache.put(clazz, f);
                     return f;
                 }
             }
-            clazz = clazz.getSuperclass();
+            c = c.getSuperclass();
         }
         return null;
     }
 
     private boolean isAnEmptyObjectId(Object target, Field field) {
-        try {
-            field.setAccessible(true);
-            return field.get(target) == null;
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Unable to obtain value from field" + field.getName() + ", class: " + target.getClass(), e);
+        if (idFieldSelector.isObjectId(field)) {
+            try {
+                field.setAccessible(true);
+                return field.get(target) == null;
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException("Unable to obtain value from field" + field.getName() + ", class: " + target.getClass(), e);
+            }
         }
+        return false;
     }
 
     public interface IdFieldSelector {
         public boolean isId(Field f);
+
+        public boolean isObjectId(Field f);
     }
 }

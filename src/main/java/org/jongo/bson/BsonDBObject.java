@@ -17,35 +17,36 @@
 package org.jongo.bson;
 
 import com.mongodb.DBObject;
+import com.mongodb.LazyDBCallback;
+import com.mongodb.LazyDBObject;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+class BsonDBObject extends LazyDBObject implements BsonDocument {
 
-class LazyBsonDocument implements BsonDocument {
-
-    private final byte[] bytes;
-
-    LazyBsonDocument(byte[] bytes) {
-        this.bytes = bytes;
-    }
-
-    public int getSize() {
-        final ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
-        return buffer.getInt(0);
+    public BsonDBObject(byte[] data, int offset) {
+        super(data, offset, new BsonCallback());
     }
 
     public byte[] toByteArray() {
-        return bytes;
+        return getBytes();
     }
 
     public DBObject toDBObject() {
-        return new BsonDBObject(bytes, 0);
+        return this;
     }
 
-    @Override
-    public String toString() {
-        return toDBObject().toString();
+    public int getSize() {
+        return getBSONSize();
     }
 
+    static class BsonCallback extends LazyDBCallback {
+
+        public BsonCallback() {
+            super(null);
+        }
+
+        @Override
+        public Object createObject(byte[] bytes, int offset) {
+            return new LazyDBObject(bytes, offset, new BsonCallback());
+        }
+    }
 }

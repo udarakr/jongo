@@ -16,7 +16,8 @@
 
 package org.jongo;
 
-import com.mongodb.*;
+import com.mongodb.DuplicateKeyException;
+import com.mongodb.WriteConcern;
 import junit.framework.Assert;
 import org.bson.types.ObjectId;
 import org.jongo.model.Coordinate;
@@ -26,19 +27,12 @@ import org.jongo.util.JongoTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Captor;
-import org.mockito.runners.MockitoJUnitRunner;
 
-import static org.fest.assertions.Assertions.assertThat;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
-@RunWith(MockitoJUnitRunner.class)
 public class InsertTest extends JongoTestCase {
 
     private MongoCollection collection;
-    @Captor
-    private org.mockito.ArgumentCaptor<DBObject> captor;
 
     @Before
     public void setUp() throws Exception {
@@ -90,14 +84,6 @@ public class InsertTest extends JongoTestCase {
     }
 
     @Test
-    public void whenNoSpecifyShouldInsertWithCollectionWriteConcern() throws Exception {
-
-        WriteResult writeResult = collection.withWriteConcern(WriteConcern.SAFE).insert("{name : 'Abby'}");
-
-        assertThat(writeResult.getLastConcern()).isEqualTo(WriteConcern.SAFE);
-    }
-
-    @Test
     public void canInsertAnObjectWithoutId() throws Exception {
 
         Coordinate noId = new Coordinate(123, 1);
@@ -117,90 +103,54 @@ public class InsertTest extends JongoTestCase {
         collection.withWriteConcern(WriteConcern.SAFE).insert(new Friend(id, "John"));
 
         assertThat(collection.count("{name : 'John'}")).isEqualTo(1);
-        assertThat(id.isNew()).isFalse();
-    }
 
-    @Test
-    public void canInsertAPojoWithNotNewObjectId() throws Exception {
-
-        ObjectId id = ObjectId.get();
-        id.notNew();
-
-        collection.withWriteConcern(WriteConcern.SAFE).insert(new Friend(id, "John"));
-
-        Friend result = collection.findOne(id).as(Friend.class);
+        Friend result = collection.findOne("{name : 'John'}").as(Friend.class);
         assertThat(result.getId()).isEqualTo(id);
     }
 
     @Test
     public void canInsertAPojoWithACustomId() throws Exception {
 
-        collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend(122, "value"));
+        collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend("122", "value"));
 
         ExternalFriend result = collection.findOne("{name:'value'}").as(ExternalFriend.class);
-        assertThat(result.getId()).isEqualTo(122);
+        assertThat(result.getId()).isEqualTo("122");
     }
 
     @Test
     public void canOnlyInsertOnceAPojoWithObjectId() throws Exception {
 
         ObjectId id = ObjectId.get();
-        id.notNew();
 
         collection.withWriteConcern(WriteConcern.SAFE).insert(new Friend(id, "John"));
 
         try {
             collection.withWriteConcern(WriteConcern.SAFE).insert(new Friend(id, "John"));
             Assert.fail();
-        } catch (MongoException.DuplicateKey e) {
+        } catch (DuplicateKeyException e) {
         }
     }
 
     @Test
     public void canOnlyInsertOnceAPojoWithACustomId() throws Exception {
 
-        collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend(122, "value"));
+        collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend("122", "value"));
 
         try {
-            collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend(122, "other value"));
+            collection.withWriteConcern(WriteConcern.SAFE).insert(new ExternalFriend("122", "other value"));
             Assert.fail();
-        } catch (MongoException.DuplicateKey e) {
+        } catch (DuplicateKeyException e) {
         }
     }
 
     @Test
-    public void shouldPreventLazyDBObjectToBeDeserialized() throws Exception {
+    public void canInsertAListOfDocuments() throws Exception {
 
-        Friend friend = new Friend(ObjectId.get(), "John");
-        DBCollection mockedDBCollection = mock(DBCollection.class);
-        ObjectIdUpdater objectIdUpdater = mock(ObjectIdUpdater.class);
-        ObjectId deserializedOid = ObjectId.get();
-        when(objectIdUpdater.getId(friend)).thenReturn(deserializedOid);
-        Insert insert = new Insert(mockedDBCollection, WriteConcern.NONE, getMapper().getMarshaller(), objectIdUpdater, getMapper().getQueryFactory());
+        collection.insert("[{name: 'John'},{name: 'Robert'}]");
 
-        insert.save(friend);
-
-        verify(mockedDBCollection).save(captor.capture(), eq(WriteConcern.NONE));
-        DBObject value = captor.getValue();
-        assertThat(value.get("_id")).isEqualTo(deserializedOid);
+        assertThat(collection.count()).isEqualTo(2);
+        Iterable<Friend> friends = collection.find().as(Friend.class);
+        assertThat(friends).extracting("name").containsExactly("John", "Robert");
     }
 
-    @Test
-    public void shouldNotPreventLazyDBObjectToBeDeserializedWhenOidIsNull() throws Exception {
-
-        ObjectId id = ObjectId.get();
-        Friend friend = new Friend(id, "John");
-        DBCollection mockedDBCollection = mock(DBCollection.class);
-        ObjectIdUpdater objectIdUpdater = mock(ObjectIdUpdater.class);
-        ObjectId deserializedOid = null;
-        when(objectIdUpdater.getId(friend)).thenReturn(deserializedOid);
-        Insert insert = new Insert(mockedDBCollection, WriteConcern.NONE, getMapper().getMarshaller(), objectIdUpdater, getMapper().getQueryFactory());
-
-        insert.save(friend);
-
-        verify(mockedDBCollection).save(captor.capture(), eq(WriteConcern.NONE));
-        DBObject value = captor.getValue();
-        assertThat(value.get("_id")).isNotNull();
-        assertThat(value.get("_id")).isEqualTo(id);
-    }
 }

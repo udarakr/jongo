@@ -18,15 +18,16 @@ package org.jongo.util;
 
 import com.mongodb.DB;
 import com.mongodb.Mongo;
+import com.mongodb.MongoClient;
 import com.mongodb.WriteConcern;
 import de.flapdoodle.embed.mongo.Command;
-import de.flapdoodle.embed.mongo.MongodExecutable;
 import de.flapdoodle.embed.mongo.MongodStarter;
-import de.flapdoodle.embed.mongo.config.MongodConfig;
-import de.flapdoodle.embed.mongo.config.RuntimeConfigBuilder;
+import de.flapdoodle.embed.mongo.config.*;
 import de.flapdoodle.embed.mongo.distribution.Version;
 import de.flapdoodle.embed.process.config.IRuntimeConfig;
 import de.flapdoodle.embed.process.config.io.ProcessOutput;
+import de.flapdoodle.embed.process.extract.UserTempNaming;
+import de.flapdoodle.embed.process.io.IStreamProcessor;
 import de.flapdoodle.embed.process.io.NullProcessor;
 import de.flapdoodle.embed.process.runtime.Network;
 
@@ -54,22 +55,33 @@ public class MongoResource {
      */
     private static class EmbeddedMongo {
 
-        public static final Version DEFAULT_VERSION = Version.V2_2_4;
+        private static MongoClient instance = getInstance();
 
-        private static Mongo instance = getInstance();
-
-        private static Mongo getInstance() {
+        private static MongoClient getInstance() {
             try {
-
+                Command mongoD = Command.MongoD;
                 int port = RandomPortNumberGenerator.pickAvailableRandomEphemeralPortNumber();
+
+                ArtifactStoreBuilder artifactStoreBuilder = new ArtifactStoreBuilder();
+                artifactStoreBuilder.defaults(mongoD);
+                artifactStoreBuilder.executableNaming(new UserTempNaming());
+
+                IStreamProcessor output = new NullProcessor();
+                ProcessOutput processOutput = new ProcessOutput(output, output, output);
+
                 IRuntimeConfig runtimeConfig = new RuntimeConfigBuilder()
-                        .defaults(Command.MongoD)
-                        .processOutput(new ProcessOutput(new NullProcessor(), new NullProcessor(), new NullProcessor()))//no logs
+                        .defaults(mongoD)
+                        .processOutput(processOutput)
+                        .artifactStore(artifactStoreBuilder.build())
                         .build();
-                MongodStarter runtime = MongodStarter.getInstance(runtimeConfig);
-                MongodConfig config = new MongodConfig(DEFAULT_VERSION, port, Network.localhostIsIPv6());
-                MongodExecutable exe = runtime.prepare(config);
-                exe.start();
+
+                Net network = new Net(port, Network.localhostIsIPv6());
+                IMongodConfig mongodConfig = new MongodConfigBuilder()
+                        .version(Version.Main.PRODUCTION)
+                        .net(network)
+                        .build();
+
+                MongodStarter.getInstance(runtimeConfig).prepare(mongodConfig).start();
 
                 return createClient(port);
 
@@ -81,9 +93,9 @@ public class MongoResource {
 
     public static class LocalMongo {
 
-        public static Mongo instance = getInstance();
+        public static MongoClient instance = getInstance();
 
-        private static Mongo getInstance() {
+        private static MongoClient getInstance() {
             try {
                 return createClient(27017);
             } catch (Exception e) {
@@ -92,12 +104,8 @@ public class MongoResource {
         }
     }
 
-    /**
-     * We use deprecated Mongo constructor to ensure backward compatibility with old drivers during compatibility tests.
-     * see src/test/sh/run-tests-against-all-driver-versions.sh
-     */
-    private static Mongo createClient(int port) throws UnknownHostException {
-        Mongo mongo = new Mongo("127.0.0.1", port);
+    private static MongoClient createClient(int port) throws UnknownHostException {
+        MongoClient mongo = new MongoClient("127.0.0.1", port);
         mongo.setWriteConcern(WriteConcern.FSYNC_SAFE);
         return mongo;
     }

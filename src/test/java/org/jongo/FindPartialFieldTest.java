@@ -17,13 +17,18 @@
 package org.jongo;
 
 import com.mongodb.DBObject;
+import org.jongo.model.Coordinate;
 import org.jongo.model.Friend;
 import org.jongo.util.JongoTestCase;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import static org.fest.assertions.Assertions.assertThat;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class FindPartialFieldTest extends JongoTestCase {
 
@@ -59,6 +64,19 @@ public class FindPartialFieldTest extends JongoTestCase {
         collection.find("{name:'John'}").projection("{name:#}", 1).map(new AssertionResultHandler());
     }
 
+    @Test
+    public void canFindWithComplexProjection() throws Exception {
+        /* given */
+        collection.insert("{subElements: [{ name: \"foo\"},{ name: \"bar\"}]}");
+
+        /* when */
+        Iterator<Map> maps = collection.find().projection("{ subElements: {$elemMatch: {name: #} } }", "bar").as(Map.class);
+
+        Map map = maps.next();
+        assertThat(map.get("subElements")).isNotNull();
+        List subElements = ((List) map.get("subElements"));
+        assertThat(subElements).hasSize(1);
+    }
 
     @Test
     public void canFindOne() throws Exception {
@@ -83,6 +101,20 @@ public class FindPartialFieldTest extends JongoTestCase {
     }
 
     @Test
+    public void canFindOneWithComplexProjection() throws Exception {
+        /* given */
+        collection.insert("{subElements: [{ name: \"foo\"},{ name: \"bar\"}]}");
+
+        /* when */
+        Map map = collection.findOne().projection("{ subElements: {$elemMatch: {name: #} } }", "bar").as(Map.class);
+
+        assertThat(map).isNotNull();
+        assertThat(map.get("subElements")).isNotNull();
+        List subElements = ((List) map.get("subElements"));
+        assertThat(subElements).hasSize(1);
+    }
+
+    @Test
     public void shouldIgnoreNullProjection() throws Exception {
         /* given */
         collection.save(friend);
@@ -93,6 +125,17 @@ public class FindPartialFieldTest extends JongoTestCase {
         assertThat(friend.getName()).isEqualTo("John");
         assertThat(friend.getAddress()).isEqualTo("22 Wall Street Avenue");
     }
+
+    @Test
+    public void canFindOneWithProjectionParamsWithDot() throws Exception {
+        collection.save(new Friend("John", "23 Wall Street Av.", new Coordinate(1, 1)));
+
+        Map map = collection.findOne("{name:'John'}").projection("{coordinate.lat:#}", 1).as(Map.class);
+
+        assertThat(((Map) map.get("coordinate")).get("lng")).isNull();
+        assertThat(((Map) map.get("coordinate")).get("lat")).isNotNull();
+    }
+
 
     private static class AssertionResultHandler implements ResultHandler<Boolean> {
         public Boolean map(DBObject result) {
